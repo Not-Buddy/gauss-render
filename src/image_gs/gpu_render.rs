@@ -190,11 +190,3 @@ impl GpuRenderer {
         Ok(image)
     }
 }
-
-// Add GPU method to ImageGS
-impl ImageGS {
-    pub async fn render_gpu(&self) -> Result<RgbImage, Box<dyn std::error::Error>> {
-        let renderer = GpuRenderer::new().await?;
-        renderer.render_gpu(self).await
-    }
-}

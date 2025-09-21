@@ -23,11 +23,6 @@ impl ImageGS {
     pub fn gaussian_count(&self) -> usize {
         self.gaussians.len()
     }
-
-    /// Clear all Gaussians
-    pub fn clear(&mut self) {
-        self.gaussians.clear();
-    }
 }
 
 // Include all the existing modules

@@ -33,7 +33,7 @@ impl ImageGS {
         let renderer = crate::image_gs::gpu_render::GpuRenderer::new().await?;
         
         // Hierarchical initialization with more Gaussians for GPU
-        self.hierarchical_initialize(&target);
+        self.smart_initialize(&target);
         println!("Starting GPU optimization with {} initial Gaussians", self.gaussians.len());
 
         for iter in 0..iterations {
@@ -41,10 +41,14 @@ impl ImageGS {
             let rendered = renderer.render_gpu(self).await?;
             let loss = self.compute_loss(&target, &rendered);
 
-            let learning_rate = if iter < 100 {
-                4.0 * (0.99_f32).powi(iter as i32 / 20) // More aggressive with GPU
+            let learning_rate = if iter < 200 {
+                2.0 * (0.9995_f32).powi(iter as i32) // Much slower decay
+            } else if iter < 500 {
+                0.8 * (0.999_f32).powi((iter - 200) as i32) // Slower decay
+            } else if iter < 800 {
+                0.3 * (0.9995_f32).powi((iter - 500) as i32) // Fine-tuning
             } else {
-                2.0 * (0.997_f32).powi(iter as i32 / 25)
+                0.1 * (0.9998_f32).powi((iter - 800) as i32) // Ultra-fine
             };
 
             if iter % 10 == 0 { // More frequent saves with faster GPU
