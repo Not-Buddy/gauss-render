@@ -100,55 +100,58 @@ impl ImageGS {
         }
     }
 
-    /// NEW: Moderate adaptive addition - much more efficient
     pub fn moderate_adaptive_addition(&mut self, target: &RgbImage, rendered: &RgbImage) {
-        let mut candidates = Vec::new();
-        
-        // Sample error at lower resolution for speed
-        for y in (5..self.height-5).step_by(8) {
-            for x in (5..self.width-5).step_by(8) {
-                let target_pixel = target.get_pixel(x, y);
-                let rendered_pixel = rendered.get_pixel(x, y);
-                
-                let mut error = 0.0;
-                for i in 0..3 {
-                    let diff = (target_pixel[i] as f32 / 255.0) - (rendered_pixel[i] as f32 / 255.0);
-                    error += diff * diff;
-                }
-                
-                if error > 0.08 { // Reasonable threshold
-                    candidates.push((Vector2::new(x as f32, y as f32), error));
-                }
+    let mut candidates = Vec::new();
+    
+    // Much denser sampling for better coverage
+    for y in (2..self.height-2).step_by(4) { // Reduced step from 8 to 4
+        for x in (2..self.width-2).step_by(4) {
+            let target_pixel = target.get_pixel(x, y);
+            let rendered_pixel = rendered.get_pixel(x, y);
+            
+            let mut error = 0.0;
+            for i in 0..3 {
+                let target_val = target_pixel[i] as f32 / 255.0;
+                let rendered_val = rendered_pixel[i] as f32 / 255.0;
+                error += (target_val - rendered_val).abs();
+            }
+            
+            // Much lower threshold to catch dark areas
+            if error > 0.03 { // Reduced from 0.08 to 0.03
+                candidates.push((Vector2::new(x as f32, y as f32), error));
             }
         }
-        
-        // Sort and add reasonable number
-        candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
-        
-        let mut rng = thread_rng();
-        let add_count = candidates.len().min(10); // MAX 10 new Gaussians per iteration
-        
-        for (pos, _) in candidates.iter().take(add_count) {
-            let target_pixel = target.get_pixel(pos.x as u32, pos.y as u32);
-            let color = vec![
-                target_pixel[0] as f32 / 255.0,
-                target_pixel[1] as f32 / 255.0,
-                target_pixel[2] as f32 / 255.0,
-            ];
-            
-            let gaussian = Gaussian2D::new(
-                *pos,
-                rng.gen_range(0.0..std::f32::consts::PI),
-                Vector2::new(
-                    rng.gen_range(4.0..12.0), // Reasonable detail size
-                    rng.gen_range(4.0..12.0),
-                ),
-                color,
-            );
-            
-            self.gaussians.push(gaussian);
-        }
     }
+    
+    candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    
+    let mut rng = thread_rng();
+    let add_count = candidates.len().min(20); // Increased from 10 to 20
+    
+    for (pos, _) in candidates.iter().take(add_count) {
+        let target_pixel = target.get_pixel(pos.x as u32, pos.y as u32);
+        
+        // Much brighter colors
+        let color = vec![
+            ((target_pixel[0] as f32 / 255.0) * 2.0).min(1.0).max(0.2), // Boost and minimum
+            ((target_pixel[1] as f32 / 255.0) * 2.0).min(1.0).max(0.2),
+            ((target_pixel[2] as f32 / 255.0) * 2.0).min(1.0).max(0.2),
+        ];
+        
+        let gaussian = Gaussian2D::new(
+            *pos,
+            rng.gen_range(0.0..std::f32::consts::PI),
+            Vector2::new(
+                rng.gen_range(6.0..16.0), // Larger Gaussians
+                rng.gen_range(6.0..16.0),
+            ),
+            color,
+        );
+        
+        self.gaussians.push(gaussian);
+    }
+}
+
 
     /// Prune ineffective Gaussians to prevent overgrowth
     pub fn prune_ineffective_gaussians(&mut self) {

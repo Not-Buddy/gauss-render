@@ -58,49 +58,110 @@ impl ImageGS {
     }
 }
 
-    pub fn smart_initialize(&mut self, target: &RgbImage) {
-        let mut rng = thread_rng();
-        self.gaussians.clear();
-        
-        // Start with REASONABLE number: 150 Gaussians
-        let target_count = 150;
-        
-        // Grid-based initialization for good coverage
-        let grid_size = (target_count as f32).sqrt() as usize;
-        
-        for i in 0..grid_size {
-            for j in 0..grid_size {
-                if self.gaussians.len() >= target_count { break; }
-                
-                let x = ((i as f32 + 0.5 + rng.gen_range(-0.3..0.3)) * self.width as f32 / grid_size as f32) as u32;
-                let y = ((j as f32 + 0.5 + rng.gen_range(-0.3..0.3)) * self.height as f32 / grid_size as f32) as u32;
-                
-                let x = x.clamp(0, self.width - 1);
-                let y = y.clamp(0, self.height - 1);
-                
-                let pixel = target.get_pixel(x, y);
-                let color = vec![
-                    pixel[0] as f32 / 255.0,
-                    pixel[1] as f32 / 255.0,
-                    pixel[2] as f32 / 255.0,
-                ];
-                
-                let gaussian = Gaussian2D::new(
-                    Vector2::new(x as f32, y as f32),
-                    rng.gen_range(0.0..std::f32::consts::PI),
-                    Vector2::new(
-                        rng.gen_range(8.0..20.0), // Reasonable size
-                        rng.gen_range(8.0..20.0),
-                    ),
-                    color,
-                );
-                
-                self.gaussians.push(gaussian);
-            }
+pub fn dense_smart_initialize(&mut self, target: &RgbImage) {
+    let mut rng = thread_rng();
+    self.gaussians.clear();
+    
+    // MASSIVELY increase Gaussian count for dense coverage
+    let target_count = 400; // Much more than 150!
+    
+    // Calculate per-pixel brightness to guide initialization
+    let mut pixel_importance = Vec::new();
+    for y in 0..self.height {
+        for x in 0..self.width {
+            let pixel = target.get_pixel(x, y);
+            let brightness = (pixel[0] as f32 + pixel[1] as f32 + pixel[2] as f32) / (3.0 * 255.0);
+            pixel_importance.push(((x, y), brightness));
         }
-        
-        println!("Smart initialized {} Gaussians", self.gaussians.len());
     }
+    
+    // Sort by brightness - focus on visible areas first
+    pixel_importance.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    
+    // Dense grid initialization based on image content
+    let grid_size = (target_count as f32 * 0.8) as usize; // 80% grid-based
+    let cols = (grid_size as f32).sqrt() as usize;
+    let rows = (grid_size + cols - 1) / cols;
+    
+    for row in 0..rows {
+        for col in 0..cols {
+            if self.gaussians.len() >= grid_size { break; }
+            
+            let x = ((col as f32 + 0.5) * self.width as f32 / cols as f32) as u32;
+            let y = ((row as f32 + 0.5) * self.height as f32 / rows as f32) as u32;
+            
+            let x = x.clamp(0, self.width - 1);
+            let y = y.clamp(0, self.height - 1);
+            
+            let pixel = target.get_pixel(x, y);
+            let brightness = (pixel[0] as f32 + pixel[1] as f32 + pixel[2] as f32) / (3.0 * 255.0);
+            
+            // Much brighter colors to fix darkness
+            let color = vec![
+                (pixel[0] as f32 / 255.0).max(0.1), // Minimum brightness
+                (pixel[1] as f32 / 255.0).max(0.1),
+                (pixel[2] as f32 / 255.0).max(0.1),
+            ];
+            
+            // Adaptive scale based on brightness
+            let base_scale = if brightness > 0.3 { 
+                rng.gen_range(6.0..15.0) // Medium size for bright areas
+            } else if brightness > 0.1 {
+                rng.gen_range(10.0..25.0) // Larger for dim areas
+            } else {
+                rng.gen_range(15.0..35.0) // Much larger for dark areas
+            };
+            
+            let gaussian = Gaussian2D::new(
+                Vector2::new(x as f32, y as f32),
+                rng.gen_range(0.0..std::f32::consts::PI),
+                Vector2::new(
+                    base_scale * rng.gen_range(0.8..1.2),
+                    base_scale * rng.gen_range(0.8..1.2),
+                ),
+                color,
+            );
+            
+            self.gaussians.push(gaussian);
+        }
+    }
+    
+    // Content-aware random initialization for remaining 20%
+        let remaining_count = target_count - self.gaussians.len();
+        let important_pixels = &pixel_importance[0..(pixel_importance.len()/3).min(remaining_count * 2)];
+
+        for i in 0..remaining_count {
+            let idx = i % important_pixels.len();
+            let ((x, y), brightness) = important_pixels[idx]; // x and y are already u32 values
+            
+            // Add small random offset - FIXED: No dereferencing needed
+            let jitter_x = (x as f32 + rng.gen_range(-5.0..5.0)).clamp(0.0, self.width as f32 - 1.0);
+            let jitter_y = (y as f32 + rng.gen_range(-5.0..5.0)).clamp(0.0, self.height as f32 - 1.0);
+            
+            let pixel = target.get_pixel(x, y); // FIXED: No dereferencing needed
+            let color = vec![
+                ((pixel[0] as f32 / 255.0) * 1.5).min(1.0).max(0.1), // Boost brightness
+                ((pixel[1] as f32 / 255.0) * 1.5).min(1.0).max(0.1),
+                ((pixel[2] as f32 / 255.0) * 1.5).min(1.0).max(0.1),
+            ];
+            
+            let gaussian = Gaussian2D::new(
+                Vector2::new(jitter_x, jitter_y),
+                rng.gen_range(0.0..std::f32::consts::PI),
+                Vector2::new(
+                    rng.gen_range(8.0..18.0), // Medium-small for detail
+                    rng.gen_range(8.0..18.0),
+                ),
+                color,
+            );
+            
+            self.gaussians.push(gaussian);
+        }
+
+    
+    println!("Dense smart initialized {} Gaussians", self.gaussians.len());
+}
+
 
     /// Keep existing hierarchical initialization but make it lighter
     pub fn hierarchical_initialize(&mut self, target: &RgbImage) {
@@ -360,7 +421,7 @@ pub fn optimize_step_with_lr(&mut self, target: &RgbImage, rendered: &RgbImage, 
         std::fs::create_dir_all(iterations_dir)?;
         
         // Use smart initialization
-        self.smart_initialize(&target);
+        self.dense_smart_initialize(&target);
         println!("Starting with {} Gaussians", self.gaussians.len());
         
         for iter in 0..iterations {
@@ -380,7 +441,7 @@ pub fn optimize_step_with_lr(&mut self, target: &RgbImage, rendered: &RgbImage, 
             self.optimize_step_with_lr(&target, &rendered, learning_rate);
             
             // Less aggressive adaptive addition - every 25 iterations
-            if iter % 40 == 0 && iter > 0 {
+            if iter % 15 == 0 && iter > 0 {
                 let before_count = self.gaussians.len();
                 self.moderate_adaptive_addition(&target, &rendered);
                 let added_count = self.gaussians.len() - before_count;
@@ -413,7 +474,7 @@ pub fn optimize_step_with_lr(&mut self, target: &RgbImage, rendered: &RgbImage, 
         
         let renderer = super::gpu_render::GpuRenderer::new().await?;
         
-        self.smart_initialize(&target); // Use smart_initialize instead of hierarchical
+        self.dense_smart_initialize(&target); // Use smart_initialize instead of hierarchical
         println!("Starting GPU optimization with {} initial Gaussians", self.gaussians.len());
         
         for iter in 0..iterations {
@@ -430,7 +491,7 @@ pub fn optimize_step_with_lr(&mut self, target: &RgbImage, rendered: &RgbImage, 
             
             self.optimize_step_with_lr(&target, &rendered, learning_rate);
             
-            if iter % 40 == 0 && iter > 0 {
+            if iter % 15 == 0 && iter > 0 {
                 let before_count = self.gaussians.len();
                 self.moderate_adaptive_addition(&target, &rendered);
                 let added_count = self.gaussians.len() - before_count;
@@ -449,38 +510,53 @@ pub fn optimize_step_with_lr(&mut self, target: &RgbImage, rendered: &RgbImage, 
     }
 
     /// Render the Gaussians to an image
-    pub fn render(&self) -> RgbImage {
-        let mut buffer = vec![vec![0.0f32; 3]; (self.width * self.height) as usize];
+pub fn render(&self) -> RgbImage {
+    let mut buffer = vec![vec![0.1f32; 3]; (self.width * self.height) as usize]; // Start with slight brightness
 
-        buffer.par_chunks_mut(self.width as usize)
-            .enumerate()
-            .for_each(|(y, row)| {
-                for (x, pixel_color) in row.iter_mut().enumerate() {
-                    let pixel_pos = Vector2::new(x as f32, y as f32);
+    buffer.par_chunks_mut(self.width as usize)
+        .enumerate()
+        .for_each(|(y, row)| {
+            for (x, pixel_color) in row.iter_mut().enumerate() {
+                let pixel_pos = Vector2::new(x as f32, y as f32);
+                let mut total_weight = 0.0;
 
-                    for gaussian in &self.gaussians {
-                        if gaussian.is_relevant(pixel_pos, 3.0) {
-                            let weight = gaussian.evaluate_at(pixel_pos);
-                            let alpha = weight.min(1.0);
-
+                for gaussian in &self.gaussians {
+                    if gaussian.is_relevant(pixel_pos, 4.0) { // Increased radius
+                        let weight = gaussian.evaluate_at(pixel_pos);
+                        if weight > 0.005 { // Lower threshold
+                            total_weight += weight;
+                            
+                            // Improved blending
+                            let alpha = (weight * 2.0).min(0.8); // Boost alpha
                             for i in 0..3 {
-                                pixel_color[i] = alpha * gaussian.color[i] + (1.0 - alpha) * pixel_color[i];
+                                let gaussian_contribution = gaussian.color[i] * alpha;
+                                pixel_color[i] = gaussian_contribution + pixel_color[i] * (1.0 - alpha);
                             }
                         }
                     }
                 }
-            });
+                
+                // Ensure minimum brightness
+                for i in 0..3 {
+                    pixel_color[i] = pixel_color[i].max(0.05); // Minimum brightness
+                }
+            }
+        });
 
-        let mut image = ImageBuffer::new(self.width, self.height);
-        for (i, pixel_data) in buffer.iter().enumerate() {
-            let x = (i % self.width as usize) as u32;
-            let y = (i / self.width as usize) as u32;
-            let r = (pixel_data[0].clamp(0.0, 1.0) * 255.0) as u8;
-            let g = (pixel_data[1].clamp(0.0, 1.0) * 255.0) as u8;
-            let b = (pixel_data[2].clamp(0.0, 1.0) * 255.0) as u8;
-            image.put_pixel(x, y, Rgb([r, g, b]));
-        }
-
-        image
+    let mut image = ImageBuffer::new(self.width, self.height);
+    for (i, pixel_data) in buffer.iter().enumerate() {
+        let x = (i % self.width as usize) as u32;
+        let y = (i / self.width as usize) as u32;
+        
+        // Gamma correction for better visibility
+        let r = (pixel_data[0].clamp(0.0, 1.0).powf(0.8) * 255.0) as u8;
+        let g = (pixel_data[1].clamp(0.0, 1.0).powf(0.8) * 255.0) as u8;
+        let b = (pixel_data[2].clamp(0.0, 1.0).powf(0.8) * 255.0) as u8;
+        
+        image.put_pixel(x, y, Rgb([r, g, b]));
     }
+
+    image
+}
+
 }

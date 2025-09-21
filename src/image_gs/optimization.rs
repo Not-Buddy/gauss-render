@@ -33,7 +33,7 @@ impl ImageGS {
         let renderer = crate::image_gs::gpu_render::GpuRenderer::new().await?;
         
         // Hierarchical initialization with more Gaussians for GPU
-        self.smart_initialize(&target);
+        self.dense_smart_initialize(&target);
         println!("Starting GPU optimization with {} initial Gaussians", self.gaussians.len());
 
         for iter in 0..iterations {
@@ -61,7 +61,7 @@ impl ImageGS {
             self.optimize_step_with_lr(&target, &rendered, learning_rate);
 
             // More frequent adaptive addition with GPU power
-            if iter % 10 == 0 && iter > 0 {
+            if iter % 15 == 0 && iter > 0 {
                 println!("Running GPU-enhanced adaptive density control...");
                 let before_count = self.gaussians.len();
                 self.enhanced_adaptive_addition(&target, &rendered);
