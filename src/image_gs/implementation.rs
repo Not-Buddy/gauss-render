@@ -7,7 +7,7 @@ use nalgebra::Vector2;
 use rand::prelude::*;
 use rayon::prelude::*;
 
-const GAUSSIAN_NUMBER: usize = 1000;
+const GAUSSIAN_NUMBER: usize = 10000;
 impl ImageGS {
     
     pub fn moderate_adaptive_addition(&mut self, target: &RgbImage, rendered: &RgbImage) {
@@ -133,7 +133,7 @@ pub fn dense_smart_initialize(&mut self, target: &RgbImage) {
 
         for i in 0..remaining_count {
             let idx = i % important_pixels.len();
-            let ((x, y), brightness) = important_pixels[idx]; // x and y are already u32 values
+            let ((x, y), _brightness) = important_pixels[idx]; // x and y are already u32 values
             
             // Add small random offset - FIXED: No dereferencing needed
             let jitter_x = (x as f32 + rng.gen_range(-5.0..5.0)).clamp(0.0, self.width as f32 - 1.0);
@@ -162,82 +162,6 @@ pub fn dense_smart_initialize(&mut self, target: &RgbImage) {
     
     println!("Dense smart initialized {} Gaussians", self.gaussians.len());
 }
-
-
-    /// Keep existing hierarchical initialization but make it lighter
-    pub fn hierarchical_initialize(&mut self, target: &RgbImage) {
-        let mut rng = thread_rng();
-        self.gaussians.clear();
-
-        // REDUCED from 20+40+60 = 120 to 15+25+30 = 70 total
-        for _ in 0..15 {
-            let x = rng.gen_range(0..self.width);
-            let y = rng.gen_range(0..self.height);
-            let pixel = target.get_pixel(x, y);
-            let color = vec![
-                pixel[0] as f32 / 255.0,
-                pixel[1] as f32 / 255.0,
-                pixel[2] as f32 / 255.0,
-            ];
-
-            let gaussian = Gaussian2D::new(
-                Vector2::new(x as f32, y as f32),
-                rng.gen_range(0.0..std::f32::consts::PI),
-                Vector2::new(
-                    rng.gen_range(30.0..50.0), // Reduced from 60
-                    rng.gen_range(30.0..50.0),
-                ),
-                color,
-            );
-            self.gaussians.push(gaussian);
-        }
-
-        for _ in 0..25 {
-            let x = rng.gen_range(0..self.width);
-            let y = rng.gen_range(0..self.height);
-            let pixel = target.get_pixel(x, y);
-            let color = vec![
-                pixel[0] as f32 / 255.0,
-                pixel[1] as f32 / 255.0,
-                pixel[2] as f32 / 255.0,
-            ];
-
-            let gaussian = Gaussian2D::new(
-                Vector2::new(x as f32, y as f32),
-                rng.gen_range(0.0..std::f32::consts::PI),
-                Vector2::new(
-                    rng.gen_range(12.0..20.0), // Reduced from 25
-                    rng.gen_range(12.0..20.0),
-                ),
-                color,
-            );
-            self.gaussians.push(gaussian);
-        }
-
-        for _ in 0..30 {
-            let x = rng.gen_range(0..self.width);
-            let y = rng.gen_range(0..self.height);
-            let pixel = target.get_pixel(x, y);
-            let color = vec![
-                pixel[0] as f32 / 255.0,
-                pixel[1] as f32 / 255.0,
-                pixel[2] as f32 / 255.0,
-            ];
-
-            let gaussian = Gaussian2D::new(
-                Vector2::new(x as f32, y as f32),
-                rng.gen_range(0.0..std::f32::consts::PI),
-                Vector2::new(
-                    rng.gen_range(4.0..12.0),
-                    rng.gen_range(4.0..12.0),
-                ),
-                color,
-            );
-            self.gaussians.push(gaussian);
-        }
-
-        println!("Initialized {} Gaussians hierarchically", self.gaussians.len());
-    }
 
     /// Initialize with random Gaussians
     pub fn initialize_random(&mut self, num_gaussians: usize) {
@@ -519,13 +443,13 @@ pub fn render(&self) -> RgbImage {
         .for_each(|(y, row)| {
             for (x, pixel_color) in row.iter_mut().enumerate() {
                 let pixel_pos = Vector2::new(x as f32, y as f32);
-                let mut total_weight = 0.0;
+                let mut _total_weight = 0.0;
 
                 for gaussian in &self.gaussians {
                     if gaussian.is_relevant(pixel_pos, 4.0) { // Increased radius
                         let weight = gaussian.evaluate_at(pixel_pos);
                         if weight > 0.005 { // Lower threshold
-                            total_weight += weight;
+                            _total_weight += weight;
                             
                             // Improved blending
                             let alpha = (weight * 2.0).min(0.8); // Boost alpha
