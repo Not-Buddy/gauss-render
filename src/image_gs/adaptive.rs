@@ -6,6 +6,9 @@ use image::RgbImage;
 use nalgebra::Vector2;
 use rand::prelude::*;
 
+
+let ADAPTIVE_COUNT=60;
+
 impl ImageGS {
     /// Basic adaptive Gaussian addition
     pub fn adaptive_gaussian_addition(&mut self, target: &RgbImage, rendered: &RgbImage) {
@@ -76,7 +79,7 @@ impl ImageGS {
         error_map.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
         
         let mut rng = thread_rng();
-        let add_count = error_map.len().min(20);
+        let add_count = error_map.len().min(ADAPTIVE_COUNT);
         
         for (pos, _) in error_map.iter().take(add_count) {
             let target_pixel = target.get_pixel(pos.x as u32, pos.y as u32);
@@ -126,7 +129,7 @@ impl ImageGS {
     candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     
     let mut rng = thread_rng();
-    let add_count = candidates.len().min(20); // Increased from 10 to 20
+    let add_count = candidates.len().min(ADAPTIVE_COUNT); 
     
     for (pos, _) in candidates.iter().take(add_count) {
         let target_pixel = target.get_pixel(pos.x as u32, pos.y as u32);
@@ -142,7 +145,7 @@ impl ImageGS {
             *pos,
             rng.gen_range(0.0..std::f32::consts::PI),
             Vector2::new(
-                rng.gen_range(6.0..16.0), // Larger Gaussians
+                rng.gen_range(6.0..16.0),
                 rng.gen_range(6.0..16.0),
             ),
             color,

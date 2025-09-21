@@ -83,100 +83,144 @@ impl GpuRenderer {
             compute_pipeline,
         })
     }
-
     pub async fn render_gpu(&self, image_gs: &ImageGS) -> Result<RgbImage, Box<dyn std::error::Error>> {
-        let width = image_gs.width;
-        let height = image_gs.height;
-        let num_gaussians = image_gs.gaussians.len() as u32;
+    let width = image_gs.width;
+    let height = image_gs.height;
+    let num_gaussians = image_gs.gaussians.len() as u32;
 
-        if num_gaussians == 0 {
-            return Ok(ImageBuffer::new(width, height));
-        }
+    if num_gaussians == 0 {
+        return Ok(ImageBuffer::new(width, height));
+    }
 
-        // Convert Gaussians to GPU format
-        let gpu_gaussians: Vec<GpuGaussian> = image_gs.gaussians.iter().map(|g| g.into()).collect();
+    // Convert Gaussians to GPU format
+    let gpu_gaussians: Vec<GpuGaussian> = image_gs.gaussians.iter().map(|g| g.into()).collect();
 
-        // Create GPU buffers
-        let gaussian_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Gaussian Buffer"),
-            contents: bytemuck::cast_slice(&gpu_gaussians),
-            usage: wgpu::BufferUsages::STORAGE,
+    // Create GPU buffers
+    let gaussian_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Gaussian Buffer"),
+        contents: bytemuck::cast_slice(&gpu_gaussians),
+        usage: wgpu::BufferUsages::STORAGE,
+    });
+
+    let params_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Params Buffer"),
+        contents: bytemuck::cast_slice(&[width, height, num_gaussians, 0u32]),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+
+    let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Output Buffer"),
+        size: (width * height * 4 * std::mem::size_of::<f32>() as u32) as u64,
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    // ATOMIC BUFFERS - New addition for advanced optimizations
+    let atomic_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Atomic Counter Buffer"),
+        size: std::mem::size_of::<u32>() as u64 * 4, // 4 atomic counters
+        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::COPY_SRC,
+        mapped_at_creation: false,
+    });
+
+    // Initialize atomic counters to zero
+    let initial_counters: [u32; 4] = [0, 0, 0, 0];
+    self.queue.write_buffer(&atomic_buffer, 0, bytemuck::cast_slice(&initial_counters));
+
+    // Debug buffer to read back atomic values (optional)
+    let debug_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Debug Atomic Buffer"),
+        size: atomic_buffer.size(),
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Staging Buffer"),
+        size: output_buffer.size(),
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    // Create bind group with atomic buffer
+    let bind_group_layout = self.compute_pipeline.get_bind_group_layout(0);
+    let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Bind Group"),
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: params_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: gaussian_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: output_buffer.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3, // NEW: Atomic buffer binding
+                resource: atomic_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
+    // Dispatch compute shader
+    let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Compute Encoder"),
+    });
+
+    {
+        let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+            label: Some("Gaussian Compute Pass"),
+            timestamp_writes: None,
         });
 
-        let params_buffer = self.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Params Buffer"),
-            contents: bytemuck::cast_slice(&[width, height, num_gaussians, 0u32]),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
+        compute_pass.set_pipeline(&self.compute_pipeline);
+        compute_pass.set_bind_group(0, &bind_group, &[]);
+        
+        let workgroup_size = 8;
+        let workgroups_x = (width + workgroup_size - 1) / workgroup_size;
+        let workgroups_y = (height + workgroup_size - 1) / workgroup_size;
+        
+        compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
+    }
 
-        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Output Buffer"),
-            size: (width * height * 4 * std::mem::size_of::<f32>() as u32) as u64,
-            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
-            mapped_at_creation: false,
-        });
+    // Copy buffers for reading back results
+    encoder.copy_buffer_to_buffer(&output_buffer, 0, &staging_buffer, 0, output_buffer.size());
+    encoder.copy_buffer_to_buffer(&atomic_buffer, 0, &debug_buffer, 0, atomic_buffer.size());
+    
+    self.queue.submit(std::iter::once(encoder.finish()));
 
-        let staging_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Staging Buffer"),
-            size: output_buffer.size(),
-            usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
+    // Read back atomic counters for debugging/optimization FIRST
+    let debug_slice = debug_buffer.slice(..);
+    debug_slice.map_async(wgpu::MapMode::Read, |_| {});
+    self.device.poll(wgpu::Maintain::Wait);
 
-        // Create bind group
-        let bind_group_layout = self.compute_pipeline.get_bind_group_layout(0);
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Bind Group"),
-            layout: &bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: params_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: gaussian_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: output_buffer.as_entire_binding(),
-                },
-            ],
-        });
+    let atomic_stats = {
+        let atomic_data = debug_slice.get_mapped_range();
+        let atomic_counters: &[u32] = bytemuck::cast_slice(&atomic_data);
+        // Copy the data we need before dropping the mapping
+        [atomic_counters[0], atomic_counters[1], atomic_counters[2], atomic_counters[3]]
+    }; // atomic_data is dropped here automatically
 
-        // Dispatch compute shader
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("Compute Encoder"),
-        });
+    // Log atomic counter values for performance analysis
+    println!("GPU Stats - Relevant Gaussians: {}, Shared Cache Hits: {}, Processed Pixels: {}, Debug Counter: {}", 
+        atomic_stats[0], atomic_stats[1], atomic_stats[2], atomic_stats[3]);
 
-        {
-            let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("Gaussian Compute Pass"),
-                timestamp_writes: None,
-            });
+    // Read back image results
+    let buffer_slice = staging_buffer.slice(..);
+    buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
+    self.device.poll(wgpu::Maintain::Wait);
 
-            compute_pass.set_pipeline(&self.compute_pipeline);
-            compute_pass.set_bind_group(0, &bind_group, &[]);
-            
-            let workgroup_size = 8;
-            let workgroups_x = (width + workgroup_size - 1) / workgroup_size;
-            let workgroups_y = (height + workgroup_size - 1) / workgroup_size;
-            compute_pass.dispatch_workgroups(workgroups_x, workgroups_y, 1);
-        }
-
-        encoder.copy_buffer_to_buffer(&output_buffer, 0, &staging_buffer, 0, output_buffer.size());
-        self.queue.submit(std::iter::once(encoder.finish()));
-
-        // Read back results
-        let buffer_slice = staging_buffer.slice(..);
-        buffer_slice.map_async(wgpu::MapMode::Read, |_| {});
-        self.device.poll(wgpu::Maintain::Wait);
-
+    // Convert back to image - process data in scope where it's valid
+    let mut image = ImageBuffer::new(width, height);
+    {
         let data = buffer_slice.get_mapped_range();
         let result: &[f32] = bytemuck::cast_slice(&data);
-
-        // Convert back to image
-        let mut image = ImageBuffer::new(width, height);
+        
         for y in 0..height {
             for x in 0..width {
                 let idx = ((y * width + x) * 4) as usize;
@@ -186,7 +230,10 @@ impl GpuRenderer {
                 image.put_pixel(x, y, Rgb([r, g, b]));
             }
         }
-
-        Ok(image)
+        // data is automatically dropped here when scope ends
     }
+
+    Ok(image)
+}
+
 }

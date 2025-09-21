@@ -7,6 +7,7 @@ use nalgebra::Vector2;
 use rand::prelude::*;
 use rayon::prelude::*;
 
+const GAUSSIAN_NUMBER: usize = 1000;
 impl ImageGS {
     
     pub fn moderate_adaptive_addition(&mut self, target: &RgbImage, rendered: &RgbImage) {
@@ -34,7 +35,7 @@ impl ImageGS {
     candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
     
     let mut rng = thread_rng();
-    let add_count = candidates.len().min(10); // MAX 10 new Gaussians per iteration
+    let add_count = candidates.len().min(GAUSSIAN_NUMBER);
     
     for (pos, _) in candidates.iter().take(add_count) {
         let target_pixel = target.get_pixel(pos.x as u32, pos.y as u32);
