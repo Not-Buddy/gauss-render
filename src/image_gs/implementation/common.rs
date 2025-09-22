@@ -289,13 +289,13 @@ impl ImageGS {
             .for_each(|(y, row)| {
                 for (x, pixel_color) in row.iter_mut().enumerate() {
                     let pixel_pos = Vector2::new(x as f32, y as f32);
-                    let mut total_weight = 0.0;
+                    let mut _total_weight = 0.0;
                     
                     for gaussian in &self.gaussians {
                         if gaussian.is_relevant(pixel_pos, 4.0) {
                             let weight = gaussian.evaluate_at(pixel_pos);
                             if weight > 0.005 {
-                                total_weight += weight;
+                                _total_weight += weight;
                                 let alpha = (weight * 2.0).min(0.8);
                                 
                                 for i in 0..3 {
