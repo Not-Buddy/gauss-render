@@ -1,6 +1,7 @@
 // src/image_gs/mod.rs
 
 use crate::gaussian::Gaussian2D;
+pub mod initialization;
 
 /// Main ImageGS struct for 2D Gaussian Splatting
 pub struct ImageGS {

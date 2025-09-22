@@ -98,7 +98,7 @@ struct Settings {
 
 fn parse_settings_from_args(args: &[String]) -> Settings {
     let mut settings = Settings {
-        image_path: "test_images/InfinityCastle.jpeg".to_string(),
+        image_path: "test_images/sample1.jpg".to_string(),
         width: 400,
         height: 400,
         iterations: 200,
