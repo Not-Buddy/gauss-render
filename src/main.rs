@@ -1,7 +1,10 @@
 // src/main.rs
 mod gaussian;
 mod image_gs;
+mod accuracy_metrics;
 
+
+use accuracy_metrics::{evaluate_all_metrics}; 
 use image_gs::ImageGS;
 use std::env;
 
@@ -36,13 +39,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let settings = parse_settings_from_args(&args);
             pollster::block_on(async {
                 run_gpu_mode_with_settings(settings).await
-            })?;
-        }
-        Some("compare") => {
-            println!("⚡ Running Comparison Mode from command line...");
-            let settings = parse_settings_from_args(&args);
-            pollster::block_on(async {
-                run_comparison_mode_with_settings(settings).await
             })?;
         }
         Some(_) => {
@@ -98,7 +94,7 @@ struct Settings {
 
 fn parse_settings_from_args(args: &[String]) -> Settings {
     let mut settings = Settings {
-        image_path: "test_images/sample1.jpg".to_string(),
+        image_path: "test_images/sample2.jpg".to_string(),
         width: 400,
         height: 400,
         iterations: 200,
@@ -150,9 +146,8 @@ fn parse_settings_from_args(args: &[String]) -> Settings {
     settings
 }
 
-// Mode functions that accept Settings struct
 fn run_cpu_mode_with_settings(settings: Settings) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n💻 Starting CPU Mode...");
+    println!("💻 Starting CPU Mode...");
     println!("📁 Image: {}", settings.image_path);
     println!("📐 Size: {}x{}", settings.width, settings.height);
     println!("🔄 Iterations: {}", settings.iterations);
@@ -180,11 +175,16 @@ fn run_cpu_mode_with_settings(settings: Settings) -> Result<(), Box<dyn std::err
     println!("📊 Final Gaussians: {}", image_gs.gaussian_count());
     println!("💾 Results saved as 'cpu_final_output.png'");
     
+    // Evaluate quality metrics
+    let target = image::open(&settings.image_path)?.to_rgb8();
+    let metrics = evaluate_all_metrics(&target, &final_result);
+    metrics.print();
+    
     Ok(())
 }
 
 async fn run_gpu_mode_with_settings(settings: Settings) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n🚀 Starting GPU Mode with Intel Arc Graphics...");
+    println!("🚀 Starting GPU Mode with Intel Arc Graphics...");
     println!("📁 Image: {}", settings.image_path);
     println!("📐 Size: {}x{}", settings.width, settings.height);
     println!("🔄 Iterations: {}", settings.iterations);
@@ -216,57 +216,10 @@ async fn run_gpu_mode_with_settings(settings: Settings) -> Result<(), Box<dyn st
     println!("📊 Final Gaussians: {}", image_gs.gaussian_count());
     println!("💾 Results saved as 'gpu_final_output.png'");
     
-    Ok(())
-}
-
-async fn run_comparison_mode_with_settings(settings: Settings) -> Result<(), Box<dyn std::error::Error>> {
-    println!("\n⚡ Starting Comparison Mode (CPU vs GPU)...");
-    println!("📁 Image: {}", settings.image_path);
-    println!("📐 Size: {}x{}", settings.width, settings.height);
-    println!("🔄 Iterations: {}", settings.iterations);
-    println!("🔄 Running both CPU and GPU versions for comparison...");
-    
-    // CPU Version
-    println!("\n--- 💻 CPU Phase ---");
-    let cpu_start = std::time::Instant::now();
-    let mut cpu_image_gs = ImageGS::new(settings.width, settings.height);
-    cpu_image_gs.initialize_random(20);
-    cpu_image_gs.fit_to_image(&settings.image_path, settings.iterations)?;
-    let cpu_result = cpu_image_gs.render();
-    cpu_result.save("comparison_cpu.png")?;
-    let cpu_duration = cpu_start.elapsed();
-    
-    // GPU Version
-    println!("\n--- 🚀 GPU Phase ---");
-    let gpu_start = std::time::Instant::now();
-    let mut gpu_image_gs = ImageGS::new(settings.width, settings.height);
-    let gpu_renderer = image_gs::GpuRenderer::new().await?;
-    gpu_image_gs.initialize_random(50);
-    gpu_image_gs.fit_to_image_gpu(&settings.image_path, settings.iterations).await?;
-    let gpu_result = gpu_renderer.render_gpu(&gpu_image_gs).await?;
-    gpu_result.save("comparison_gpu.png")?;
-    let gpu_duration = gpu_start.elapsed();
-    
-    // Show comparison results
-    println!("\n📊 === PERFORMANCE COMPARISON ===");
-    println!("💻 CPU Results:");
-    println!("   ⏱️  Time: {:.2}s", cpu_duration.as_secs_f64());
-    println!("   📊 Gaussians: {}", cpu_image_gs.gaussian_count());
-    println!("   💾 Output: comparison_cpu.png");
-    
-    println!("🚀 GPU Results:");
-    println!("   ⏱️  Time: {:.2}s", gpu_duration.as_secs_f64());
-    println!("   📊 Gaussians: {}", gpu_image_gs.gaussian_count());
-    println!("   💾 Output: comparison_gpu.png");
-    
-    let speedup = cpu_duration.as_secs_f64() / gpu_duration.as_secs_f64();
-    println!("⚡ GPU Speedup: {:.1}x faster", speedup);
-    
-    if speedup > 1.0 {
-        println!("🎉 Intel Arc GPU wins! 🏆");
-    } else {
-        println!("🤔 CPU performed better this time");
-    }
+    // Evaluate quality metrics
+    let target = image::open(&settings.image_path)?.to_rgb8();
+    let metrics = evaluate_all_metrics(&target, &final_result);
+    metrics.print();
     
     Ok(())
 }
