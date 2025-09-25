@@ -6,7 +6,8 @@ use nalgebra::Vector2;
 use rand::prelude::*;
 use rayon::prelude::*;
 
-const GAUSSIAN_NUMBER: usize = 12000;
+const GAUSSIAN_NUMBER: usize = 3000;
+const DENSE_GAUSSIAN_COUNT: usize = 1200;
 
 impl ImageGS {
     /// Compute L1 loss between target and rendered images
@@ -24,106 +25,168 @@ impl ImageGS {
         total_loss / (pixel_count * 3.0)
     }
 
-    /// Dense smart initialization based on image content
     pub fn dense_smart_initialize(&mut self, target: &RgbImage) {
-        let mut rng = thread_rng();
-        self.gaussians.clear();
-        
-        let target_count = 400;
-        
-        // Calculate per-pixel brightness to guide initialization
-        let mut pixel_importance = Vec::new();
-        for y in 0..self.height {
-            for x in 0..self.width {
-                let pixel = target.get_pixel(x, y);
-                let brightness = (pixel[0] as f32 + pixel[1] as f32 + pixel[2] as f32) / (3.0 * 255.0);
-                pixel_importance.push((x, y, brightness));
-            }
+    let mut rng = thread_rng();
+    self.gaussians.clear();
+    
+    let target_count = DENSE_GAUSSIAN_COUNT;
+    
+    // Calculate per-pixel brightness to guide initialization
+    let mut pixel_importance = Vec::new();
+    for y in 0..self.height {
+        for x in 0..self.width {
+            let pixel = target.get_pixel(x, y);
+            let brightness = (pixel[0] as f32 + pixel[1] as f32 + pixel[2] as f32) / (3.0 * 255.0);
+            pixel_importance.push((x, y, brightness));
         }
-        
-        // Sort by brightness - focus on visible areas first
-        pixel_importance.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
-        
-        // Dense grid initialization based on image content
-        let grid_size = (target_count as f32 * 0.8) as usize; // 80% grid-based
-        let cols = (grid_size as f32).sqrt() as usize;
-        let rows = (grid_size + cols - 1) / cols;
-        
-        for row in 0..rows {
-            for col in 0..cols {
-                if self.gaussians.len() >= grid_size {
-                    break;
-                }
-                
-                let x = ((col as f32 + 0.5) * self.width as f32 / cols as f32) as u32;
-                let y = ((row as f32 + 0.5) * self.height as f32 / rows as f32) as u32;
-                let x = x.clamp(0, self.width - 1);
-                let y = y.clamp(0, self.height - 1);
-                
-                let pixel = target.get_pixel(x, y);
-                let brightness = (pixel[0] as f32 + pixel[1] as f32 + pixel[2] as f32) / (3.0 * 255.0);
-                
-                let color = vec![
-                    (pixel[0] as f32 / 255.0).max(0.1),
-                    (pixel[1] as f32 / 255.0).max(0.1),
-                    (pixel[2] as f32 / 255.0).max(0.1),
-                ];
-                
-                let base_scale = if brightness > 0.3 {
-                    rng.gen_range(6.0..15.0)
-                } else if brightness > 0.1 {
-                    rng.gen_range(10.0..25.0)
-                } else {
-                    rng.gen_range(15.0..35.0)
-                };
-                
-                let gaussian = Gaussian2D::new(
-                    Vector2::new(x as f32, y as f32),
-                    rng.gen_range(0.0..std::f32::consts::PI),
-                    Vector2::new(
-                        base_scale * rng.gen_range(0.8..1.2),
-                        base_scale * rng.gen_range(0.8..1.2),
-                    ),
-                    color,
-                );
-                
-                self.gaussians.push(gaussian);
+    }
+    
+    // Sort by brightness - focus on visible areas first
+    pixel_importance.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+    
+    // Dense grid initialization based on image content
+    let grid_size = (target_count as f32 * 0.6) as usize; // Reduced to 60% for grid to make room for edges
+    let cols = (grid_size as f32).sqrt() as usize;
+    let rows = (grid_size + cols - 1) / cols;
+    
+    for row in 0..rows {
+        for col in 0..cols {
+            if self.gaussians.len() >= grid_size {
+                break;
             }
-        }
-        
-        // Content-aware random initialization for remaining 20%
-        let remaining_count = target_count - self.gaussians.len();
-        let important_pixels = &pixel_importance[0..(pixel_importance.len() / 3).min(remaining_count * 2)];
-        
-        for i in 0..remaining_count {
-            let idx = i % important_pixels.len();
-            let (x, y, _brightness) = important_pixels[idx];
             
-            let jitter_x = (x as f32 + rng.gen_range(-5.0..5.0)).clamp(0.0, self.width as f32 - 1.0);
-            let jitter_y = (y as f32 + rng.gen_range(-5.0..5.0)).clamp(0.0, self.height as f32 - 1.0);
+            let x = ((col as f32 + 0.5) * self.width as f32 / cols as f32) as u32;
+            let y = ((row as f32 + 0.5) * self.height as f32 / rows as f32) as u32;
+            let x = x.clamp(0, self.width - 1);
+            let y = y.clamp(0, self.height - 1);
             
             let pixel = target.get_pixel(x, y);
+            let brightness = (pixel[0] as f32 + pixel[1] as f32 + pixel[2] as f32) / (3.0 * 255.0);
+            
             let color = vec![
-                ((pixel[0] as f32 / 255.0) * 1.5).min(1.0).max(0.1),
-                ((pixel[1] as f32 / 255.0) * 1.5).min(1.0).max(0.1),
-                ((pixel[2] as f32 / 255.0) * 1.5).min(1.0).max(0.1),
+                (pixel[0] as f32 / 255.0).max(0.1),
+                (pixel[1] as f32 / 255.0).max(0.1),
+                (pixel[2] as f32 / 255.0).max(0.1),
             ];
+
+            let base_scale = if brightness > 0.3 {
+                rng.gen_range(3.0..8.0)   // ✅ Smaller for sharp details
+            } else if brightness > 0.1 {
+                rng.gen_range(5.0..12.0)  // ✅ Medium for mid-tones
+            } else {
+                rng.gen_range(8.0..18.0)  // ✅ Larger only for dark areas
+            };
             
             let gaussian = Gaussian2D::new(
-                Vector2::new(jitter_x, jitter_y),
+                Vector2::new(x as f32, y as f32),
                 rng.gen_range(0.0..std::f32::consts::PI),
                 Vector2::new(
-                    rng.gen_range(8.0..18.0),
-                    rng.gen_range(8.0..18.0),
+                    base_scale * rng.gen_range(0.8..1.2),
+                    base_scale * rng.gen_range(0.8..1.2),
                 ),
                 color,
             );
             
             self.gaussians.push(gaussian);
         }
-        
-        println!("Dense smart initialized {} Gaussians", self.gaussians.len());
     }
+    
+    // ADD EDGE DETECTION GAUSSIANS HERE - 25% of total count
+    let edge_gaussians = target_count / 4;
+    let mut edge_positions = Vec::new();
+    
+    // Simple edge detection using brightness gradients
+    for y in 1..(self.height - 1) {
+        for x in 1..(self.width - 1) {
+            let center_pixel = target.get_pixel(x, y);
+            let center_brightness = (center_pixel[0] as f32 + center_pixel[1] as f32 + center_pixel[2] as f32) / (3.0 * 255.0);
+            
+            // Check gradients in 4 directions
+            let mut max_gradient = 0.0_f32;
+            for (dx, dy) in &[(0, 1), (0, -1), (1, 0), (-1, 0)] {
+                let neighbor_x = (x as i32 + dx) as u32;
+                let neighbor_y = (y as i32 + dy) as u32;
+                
+                if neighbor_x < self.width && neighbor_y < self.height {
+                    let neighbor_pixel = target.get_pixel(neighbor_x, neighbor_y);
+                    let neighbor_brightness = (neighbor_pixel[0] as f32 + neighbor_pixel[1] as f32 + neighbor_pixel[2] as f32) / (3.0 * 255.0);
+                    let gradient = (center_brightness - neighbor_brightness).abs();
+                    max_gradient = max_gradient.max(gradient);
+                }
+            }
+            
+            // If this is an edge (high gradient), store it
+            if max_gradient > 0.1 {
+                edge_positions.push((x, y, max_gradient, center_pixel));
+            }
+        }
+    }
+    
+    // Sort edges by gradient strength (strongest edges first)
+    edge_positions.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap());
+    
+    // Place small Gaussians on high-contrast areas
+    for i in 0..edge_gaussians.min(edge_positions.len()) {
+        let (x, y, _gradient, pixel) = edge_positions[i];
+        
+        // Add some jitter to avoid perfect alignment
+        let edge_x = (x as f32 + rng.gen_range(-1.0..1.0)).clamp(0.0, self.width as f32 - 1.0);
+        let edge_y = (y as f32 + rng.gen_range(-1.0..1.0)).clamp(0.0, self.height as f32 - 1.0);
+        
+        let edge_color = vec![
+            (pixel[0] as f32 / 255.0).max(0.1),
+            (pixel[1] as f32 / 255.0).max(0.1),
+            (pixel[2] as f32 / 255.0).max(0.1),
+        ];
+        
+        let gaussian = Gaussian2D::new(
+            Vector2::new(edge_x, edge_y),
+            rng.gen_range(0.0..std::f32::consts::PI),
+            Vector2::new(
+                rng.gen_range(2.0..4.0),  // ✅ Very small for edges
+                rng.gen_range(2.0..4.0),  // ✅ Very small for edges
+            ),
+            edge_color,
+        );
+        
+        self.gaussians.push(gaussian);
+    }
+    
+    // Content-aware random initialization for remaining 15%
+    let remaining_count = target_count - self.gaussians.len();
+    let important_pixels = &pixel_importance[0..(pixel_importance.len() / 3).min(remaining_count * 2)];
+    
+    for i in 0..remaining_count {
+        let idx = i % important_pixels.len();
+        let (x, y, _brightness) = important_pixels[idx];
+        
+        let jitter_x = (x as f32 + rng.gen_range(-5.0..5.0)).clamp(0.0, self.width as f32 - 1.0);
+        let jitter_y = (y as f32 + rng.gen_range(-5.0..5.0)).clamp(0.0, self.height as f32 - 1.0);
+        
+        let pixel = target.get_pixel(x, y);
+        let color = vec![
+            ((pixel[0] as f32 / 255.0) * 1.5).min(1.0).max(0.1),
+            ((pixel[1] as f32 / 255.0) * 1.5).min(1.0).max(0.1),
+            ((pixel[2] as f32 / 255.0) * 1.5).min(1.0).max(0.1),
+        ];
+        
+        let gaussian = Gaussian2D::new(
+            Vector2::new(jitter_x, jitter_y),
+            rng.gen_range(0.0..std::f32::consts::PI),
+            Vector2::new(
+                rng.gen_range(8.0..18.0),
+                rng.gen_range(8.0..18.0),
+            ),
+            color,
+        );
+        
+        self.gaussians.push(gaussian);
+    }
+    
+    println!("Dense smart initialized {} Gaussians (grid: {}, edges: {}, random: {})", 
+             self.gaussians.len(), grid_size, edge_gaussians.min(edge_positions.len()), remaining_count);
+}
+
 
     /// Moderate adaptive addition of Gaussians based on error
     pub fn moderate_adaptive_addition(&mut self, target: &RgbImage, rendered: &RgbImage) {
@@ -140,7 +203,7 @@ impl ImageGS {
                     error += diff * diff;
                 }
                 
-                if error > 0.08 {
+                if error > 0.05 {
                     candidates.push((Vector2::new(x as f32, y as f32), error));
                 }
             }

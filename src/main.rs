@@ -94,7 +94,7 @@ struct Settings {
 
 fn parse_settings_from_args(args: &[String]) -> Settings {
     let mut settings = Settings {
-        image_path: "test_images/sample2.jpg".to_string(),
+        image_path: "test_images/InfinityCastle.jpeg".to_string(),
         width: 400,
         height: 400,
         iterations: 200,
@@ -192,7 +192,7 @@ async fn run_gpu_mode_with_settings(settings: Settings) -> Result<(), Box<dyn st
     let mut image_gs = ImageGS::new(settings.width, settings.height);
     
     // Create GPU renderer
-    println!("🔧 Initializing Intel Arc GPU...");
+    println!("🔧 Initializing GPU...");
     let mut gpu_renderer = image_gs::GpuRenderer::new().await?;
     
     // Test rendering first

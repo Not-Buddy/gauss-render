@@ -496,11 +496,6 @@ impl GpuRenderer {
         self.is_device_healthy()
     }
 
-    // Get current adapter info
-    pub fn get_adapter_info(&self) -> Option<&wgpu::AdapterInfo> {
-        self.adapter_info.as_ref()
-    }
-
     // Get failure count for diagnostics
     pub fn get_failure_count(&self) -> u32 {
         self.consecutive_failures

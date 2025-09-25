@@ -120,7 +120,7 @@ impl ImageGS {
             }
             
             // Much lower threshold to catch dark areas
-            if error > 0.03 { // Reduced from 0.08 to 0.03
+            if error > 0.05 { 
                 candidates.push((Vector2::new(x as f32, y as f32), error));
             }
         }
