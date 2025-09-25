@@ -68,7 +68,7 @@ fn show_help() {
     println!();
     println!("MODES:");
     println!("  -1, --cpu      💻 CPU Mode - Traditional rendering");
-    println!("  -2, --gpu      🚀 GPU Mode - Intel Arc accelerated");
+    println!("  -2, --gpu      🚀 GPU Mode - Meant to be used with Intel Arc");
     println!("  -3, --compare  ⚡ Comparison - Both CPU and GPU");
     println!();
     println!("OPTIONS:");
@@ -184,7 +184,6 @@ fn run_cpu_mode_with_settings(settings: Settings) -> Result<(), Box<dyn std::err
 }
 
 async fn run_gpu_mode_with_settings(settings: Settings) -> Result<(), Box<dyn std::error::Error>> {
-    println!("🚀 Starting GPU Mode with Intel Arc Graphics...");
     println!("📁 Image: {}", settings.image_path);
     println!("📐 Size: {}x{}", settings.width, settings.height);
     println!("🔄 Iterations: {}", settings.iterations);
@@ -194,7 +193,7 @@ async fn run_gpu_mode_with_settings(settings: Settings) -> Result<(), Box<dyn st
     
     // Create GPU renderer
     println!("🔧 Initializing Intel Arc GPU...");
-    let gpu_renderer = image_gs::GpuRenderer::new().await?;
+    let mut gpu_renderer = image_gs::GpuRenderer::new().await?;
     
     // Test rendering first
     image_gs.initialize_random(100);
