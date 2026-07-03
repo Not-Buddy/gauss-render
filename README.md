@@ -6,6 +6,20 @@ A high-performance Rust implementation of 2D Gaussian Splatting for image repres
 
 This project implements **Image-GS**, a content-adaptive image representation method that uses anisotropic 2D Gaussians for efficient, high-fidelity image compression and rendering. The system can fit a collection of 2D Gaussians to approximate any input image through an iterative training process.
 
+<table align="center">
+  <tr>
+    <th align="center">Less Iterations</th>
+    <th align="center">More Iterations</th>
+    <th align="center">Final Output</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="sample_gifs/LessIterations.gif" width="250" alt="Less Iterations" /></td>
+    <td align="center"><img src="sample_gifs/MoreIterations.gif" width="250" alt="More Iterations" /></td>
+    <td align="center"><img src="sample_gifs/gpu_final_output.png" width="250" alt="Final Output" /></td>
+  </tr>
+</table>
+
+
 ### Features
 
 - **Dual Rendering Modes**: CPU and GPU implementations for maximum compatibility
